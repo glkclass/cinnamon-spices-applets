@@ -65,6 +65,8 @@ PomodoroApplet.prototype = {
         this._numPomodoriFinished = 0;
         // Number of finished sets.
         this._numPomodoroSetFinished = 0;
+        // Flag of skipping short break
+        this._skipShortBreak = false;
         this._setTimerLabel(0);
 
         // option settings, values are bound in _bindSettings
@@ -112,6 +114,7 @@ PomodoroApplet.prototype = {
         this._timerQueue = new TimerModule.TimerQueue();
         this._resetPomodoroTimerQueue();
 
+        this._pomodoroFinisheddialog = this._createPomodoroFinishedDialog();
         this._longBreakdialog = this._createLongBreakDialog();
         this._shortBreakdialog = this._createShortBreakDialog()
         this._appletMenu = this._createMenu(orientation);
@@ -471,7 +474,11 @@ PomodoroApplet.prototype = {
 
             let timer = timerQueue.getCurrentTimer();
 
-            if (!this._opt_autoContinueAfterShortBreak && timer === pomodoroTimer) {
+            if (this._pomodoroFinisheddialog.state == ModalDialog.State.OPENED) {
+                this._pomodoroFinisheddialog.close();
+            }
+
+            if (!this._opt_autoContinueAfterShortBreak && timer === pomodoroTimer && !this._skipShortBreak) {
                 timerQueue.preventStart(true);
                 timerQueue.stop();
                 this._appletMenu.toggleTimerState(false);
@@ -482,6 +489,7 @@ PomodoroApplet.prototype = {
                     this._shortBreakdialog.open();
                 }
             }
+            this._skipShortBreak = false;
 
         }));
 
@@ -514,7 +522,12 @@ PomodoroApplet.prototype = {
             this._numPomodoriFinished++;
             this._appletMenu.updateCounts(this._numPomodoroSetFinished, this._numPomodoriFinished);
             this._appletMenu.showPomodoroInProgress(this._opt_pomodoriNumber);
-            Main.notify(_("Take a short break"));
+
+            if (this._opt_showDialogMessages) {
+                this._pomodoroFinisheddialog.open();
+            } else {
+                Main.notify(_("Take a short break"));
+            }
         }));
 
         shortBreakTimer.connect('timer-stopped', Lang.bind(this, function() {
@@ -780,6 +793,27 @@ PomodoroApplet.prototype = {
         return dialog;
     },
 
+    /**
+     *
+     * @returns {PomodoroFinishedDialog}
+     * @private
+     */
+    _createPomodoroFinishedDialog: function() {
+        let dialog = new PomodoroFinishedDialog();
+
+        dialog.connect('start-next-pomodoro', Lang.bind(this, function() {
+            this._pomodoroFinisheddialog.close();
+            this._skipShortBreak = true;
+            this._timerQueue.skip();
+        }));
+
+        dialog.connect('start-break', Lang.bind(this, function() {
+            this._pomodoroFinisheddialog.close();
+        }));
+
+        return dialog;
+    },
+
     // Setting listeners
 
     _onAppletIconChanged: function() {
@@ -1008,13 +1042,13 @@ PomodoroSetFinishedDialog.prototype = {
 
         this.setButtons([
             {
-                label: _("Switch Off Pomodoro"),
+                label: _("Switch off Pomodoro"),
                 action: Lang.bind(this, function() {
                     this.emit('switch-off-pomodoro');
                 })
             },
             {
-                label: _("Start a new Pomodoro"),
+                label: _("Start a new Pomodoro set"),
                 action: Lang.bind(this, function() {
                     this.emit('start-new-pomodoro')
                 })
@@ -1083,7 +1117,7 @@ PomodoroBreakFinishedDialog.prototype = {
 
         this.setButtons([
             {
-                label: _("Continue Current Pomodoro"),
+                label: _("Continue current Pomodoro"),
                 action: Lang.bind(this, function() {
                     this.emit('continue-current-pomodoro')
                 })
@@ -1101,6 +1135,48 @@ PomodoroBreakFinishedDialog.prototype = {
 
     setDefaultLabels: function() {
         this._subjectLabel.set_text(_("Short break finished, ready to continue?") + "\n");
+        this._timeLabel.text = '';
+    }
+};
+
+function PomodoroFinishedDialog() {
+    this._init.call(this);
+}
+
+PomodoroFinishedDialog.prototype = {
+    __proto__: ModalDialog.ModalDialog.prototype,
+
+    _init: function() {
+        ModalDialog.ModalDialog.prototype._init.call(this);
+
+        this._subjectLabel = new St.Label();
+
+        this.contentLayout.add(this._subjectLabel);
+
+        this._timeLabel = new St.Label();
+
+        this.contentLayout.add(this._timeLabel);
+
+        this.setButtons([
+            {
+                label: _("Start next Pomodoro"),
+                action: Lang.bind(this, function() {
+                    this.emit('start-next-pomodoro')
+                })
+            },
+            {
+                label: _("Start Break"),
+                action: Lang.bind(this, function() {
+                    this.emit('start-break');
+                })
+            }
+        ]);
+
+        this.setDefaultLabels();
+    },
+
+    setDefaultLabels: function() {
+        this._subjectLabel.set_text(_("Pomodoro finished, have a break..") + "\n");
         this._timeLabel.text = '';
     }
 };
